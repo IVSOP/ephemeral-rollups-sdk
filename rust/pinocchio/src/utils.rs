@@ -31,15 +31,13 @@ pub fn make_seed_buf<'a>() -> [Seed<'a>; MAX_SEEDS] {
 }
 
 pub fn close_pda_acc(payer: &AccountInfo, pda_acc: &AccountInfo) -> Result<(), ProgramError> {
-    unsafe {
-        *payer.borrow_mut_lamports_unchecked() += *pda_acc.borrow_lamports_unchecked();
-        *pda_acc.borrow_mut_lamports_unchecked() = 0;
+    {
+        let pda_balance = pda_acc.lamports();
+        *payer.try_borrow_mut_lamports()? += pda_balance;
+        *pda_acc.try_borrow_mut_lamports()? = 0;
     }
 
-    pda_acc
-        .realloc(0, false)
-        .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    unsafe { pda_acc.assign(&pinocchio_system::ID) };
+    pda_acc.close()?;
 
     Ok(())
 }
@@ -52,42 +50,19 @@ pub fn cpi_delegate(
     buffer_acc: &AccountInfo,
     delegation_record: &AccountInfo,
     delegation_metadata: &AccountInfo,
+    system_program: &AccountInfo,
     delegate_args: DelegateAccountArgs,
     signer_seeds: Signer<'_, '_>,
 ) -> Result<(), ProgramError> {
-    const UNINIT_META: MaybeUninit<AccountMeta> = MaybeUninit::<AccountMeta>::uninit();
-    let mut account_metas = [UNINIT_META; MAX_CPI_ACCOUNTS];
-
-    let num_accounts = 7;
-
-    unsafe {
-        // SAFETY: num_accounts <= MAX_CPI_ACCOUNTS
-        account_metas
-            .get_unchecked_mut(0)
-            .write(AccountMeta::new(payer.key(), true, true));
-        account_metas
-            .get_unchecked_mut(1)
-            .write(AccountMeta::new(pda_acc.key(), true, true));
-        account_metas
-            .get_unchecked_mut(2)
-            .write(AccountMeta::readonly(owner_program.key()));
-        account_metas
-            .get_unchecked_mut(3)
-            .write(AccountMeta::new(buffer_acc.key(), true, false));
-        account_metas.get_unchecked_mut(4).write(AccountMeta::new(
-            delegation_record.key(),
-            true,
-            false,
-        ));
-        account_metas.get_unchecked_mut(5).write(AccountMeta::new(
-            delegation_metadata.key(),
-            true,
-            false,
-        ));
-        account_metas
-            .get_unchecked_mut(6)
-            .write(AccountMeta::readonly(&pinocchio_system::ID));
-    }
+    let metas: &[AccountMeta] = &[
+        AccountMeta::new(payer.key(), true, true),
+        AccountMeta::new(pda_acc.key(), true, true),
+        AccountMeta::readonly(owner_program.key()),
+        AccountMeta::new(buffer_acc.key(), true, false),
+        AccountMeta::new(delegation_record.key(), true, false),
+        AccountMeta::new(delegation_metadata.key(), true, false),
+        AccountMeta::readonly(&pinocchio_system::ID),
+    ];
 
     // Prepare instruction data with 8-byte discriminator prefix followed by serialized args
     let mut data = [0u8; 8 + MAX_DELEGATE_ACCOUNT_ARGS_SIZE];
@@ -99,22 +74,22 @@ pub fn cpi_delegate(
 
     let instruction = Instruction {
         program_id: &DELEGATION_PROGRAM_ID,
-        accounts: unsafe {
-            core::slice::from_raw_parts(account_metas.as_ptr() as *const AccountMeta, num_accounts)
-        },
+        accounts: metas,
         data: data_slice,
     };
 
-    let acc_infos = [
+    let acc_infos = &[
         payer,
         pda_acc,
         owner_program,
         buffer_acc,
         delegation_record,
         delegation_metadata,
+        system_program, // this was never passed in!!!! was this ever tested?
     ];
 
-    invoke_signed(&instruction, &acc_infos, &[signer_seeds])?;
+    invoke_signed(&instruction, acc_infos, &[signer_seeds])?;
+
     Ok(())
 }
 
