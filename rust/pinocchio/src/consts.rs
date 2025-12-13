@@ -4,6 +4,7 @@ use pinocchio_pubkey::pubkey;
 
 /// The delegation program ID.
 pub const DELEGATION_PROGRAM_ID: Pubkey = pubkey!("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
+// pub const DELEGATION_PROGRAM_ID: Pubkey = pubkey!("FyNZEozjfAdEM4JNH2tjNUiMEcyS2xcqL63UCGLjGcB7");
 
 /// The magic program ID.
 pub const MAGIC_PROGRAM_ID: Pubkey = pubkey!("Magic11111111111111111111111111111111111111");

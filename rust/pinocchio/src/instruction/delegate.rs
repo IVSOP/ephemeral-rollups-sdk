@@ -19,7 +19,7 @@ pub fn delegate_account(
     bump: u8,
     config: DelegateConfig,
 ) -> ProgramResult {
-    let [payer, pda_acc, owner_program, buffer_acc, delegation_record, delegation_metadata] =
+    let [payer, pda_acc, owner_program, buffer_acc, delegation_record, delegation_metadata, system_program] =
         accounts
     else {
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -45,13 +45,14 @@ pub fn delegate_account(
     let buffer_signer_seeds = Signer::from(&buffer_seed_binding);
 
     // Single data_len and rent lookup
+    // FIX: what the fuck? you never use any rent! you create the account with zero lamports!!
     let data_len = pda_acc.data_len();
 
     // Create Buffer PDA
     CreateAccount {
         from: payer,
         to: buffer_acc,
-        lamports: 0,
+        lamports: 0, // rent.minimum_balance(data_len),
         space: data_len as u64,
         owner: owner_program.key(),
     }
@@ -75,17 +76,21 @@ pub fn delegate_account(
     let filled = fill_seeds(&mut seed_buf, seeds, &bump);
     let delegate_signer_seeds = Signer::from(filled);
 
-    let current_owner = unsafe { pda_acc.owner() };
-    if current_owner != &pinocchio_system::id() {
-        unsafe { pda_acc.assign(&pinocchio_system::id()) };
-    }
-    let current_owner = unsafe { pda_acc.owner() };
-    if current_owner != &DELEGATION_PROGRAM_ID {
-        Assign {
-            account: pda_acc,
-            owner: &DELEGATION_PROGRAM_ID,
+    {
+        let current_owner = pda_acc.owner();
+        if current_owner != &pinocchio_system::id() {
+            unsafe { pda_acc.assign(&pinocchio_system::id()) };
         }
-        .invoke_signed(&[delegate_signer_seeds.clone()])?;
+    }
+    {
+        let current_owner = pda_acc.owner();
+        if current_owner != &DELEGATION_PROGRAM_ID {
+            Assign {
+                account: pda_acc,
+                owner: &DELEGATION_PROGRAM_ID,
+            }
+            .invoke_signed(&[delegate_signer_seeds.clone()])?;
+        }
     }
 
     // Delegate
@@ -102,6 +107,7 @@ pub fn delegate_account(
         buffer_acc,
         delegation_record,
         delegation_metadata,
+        system_program,
         delegate_args,
         delegate_signer_seeds,
     )?;
